@@ -1,0 +1,536 @@
+\documentclass[conference]{IEEEtran}
+\IEEEoverridecommandlockouts
+% Template version as of 6/27/2024
+
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{algorithmic}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
+    T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
+
+\begin{document}
+
+\title{Hybrid Chaos-PQC Image Encryption: Post-Quantum Key Establishment via ML-KEM-768 with Dual Confusion--Dual Diffusion Chaotic Maps}
+
+\author{
+\IEEEauthorblockN{Hafas Furqan}
+\IEEEauthorblockA{
+\textit{Cryptographic Engineering} \\
+\textit{Politeknik Siber dan Sandi Negara} \\
+Bogor, Indonesia \\
+hafas.furqan@student.poltekssn.ac.id}
+
+\and
+\IEEEauthorblockN{Yeni Farida}
+\IEEEauthorblockA{
+\textit{Cryptographic Engineering} \\
+\textit{Politeknik Siber dan Sandi Negara} \\
+Bogor, Indonesia \\
+yeni.farida@poltekssn.ac.id}
+
+\and
+\IEEEauthorblockN{Andika Aryansyach Fauzan}
+\IEEEauthorblockA{
+\textit{Cryptographic Engineering} \\
+\textit{Politeknik Siber dan Sandi Negara} \\
+Bogor, Indonesia \\
+andika.aryansyach@student.poltekssn.ac.id}
+}
+
+\maketitle
+
+\begin{abstract}
+Chaos-based image encryption schemes offer strong statistical security properties but remain vulnerable to quantum attacks when their key establishment relies on classical public-key primitives such as RSA or ECC. No prior scheme combines a NIST-standardized post-quantum key encapsulation mechanism (KEM), cryptographically independent chaos parameter derivation, and a multi-map confusion-diffusion pipeline into a unified architecture. This paper proposes and evaluates a hybrid Chaos-PQC image encryption scheme that addresses this gap. Key establishment is performed using ML-KEM-768 (FIPS 203, NIST security category 3), which produces a 32-byte session-unique shared secret secured by the Module Learning With Errors (MLWE) hardness assumption. The shared secret is expanded by HKDF-SHA-256 into 144 bytes of output keying material, partitioned into 18 cryptographically independent parameters that seed a four-stage confusion-diffusion-confusion-diffusion pipeline: the Lorenz Attractor provides two-dimensional pixel permutation at each confusion stage, the Logistic Map generates the first-stage diffusion keystream, and the Tent Map---selected for its near-uniform output distribution---generates the second-stage keystream. Experiments on nine grayscale PNG images across three resolution classes ($512\!\times\!512$, $900\!\times\!900$, $1080\!\times\!1080$) demonstrate mean information entropy of 7.9994~bits (deviation from ideal: 0.0006), mean absolute inter-pixel correlation of $7\!\times\!10^{-4}$, and mean PSNR of 7.79~dB, confirming strong and content-independent encryption quality. Bit-exact decryption was verified for all images; a single-bit parameter fault rendered decryption completely infeasible, validating chaotic sensitivity.
+\end{abstract}
+
+\begin{IEEEkeywords}
+image encryption; post-quantum cryptography; ML-KEM; FIPS~203; HKDF; Lorenz attractor; Logistic Map; Tent Map; confusion-diffusion; chaos-based cryptography
+\end{IEEEkeywords}
+
+% -------------------------------------------------------
+\section{Introduction}
+% -------------------------------------------------------
+
+The rapid growth of digital public services---radiology archiving systems, telemedicine platforms, and biometric management applications---has substantially intensified the exchange of visual data carrying sensitive personally identifiable information (PII). The scale of exposure is not hypothetical: a large-scale audit by Greenbone Networks reported that misconfigured Picture Archiving and Communication System (PACS) servers left over 1.2 billion medical images accessible without authentication from the public internet \cite{b1}. In Indonesia, the severity of visual and personal data breaches has been well documented; the national health insurance agency (BPJS Kesehatan) suffered a breach exposing identity numbers, phone numbers, home addresses, and e-mail accounts of millions of citizens, with the data subsequently traded in underground forums \cite{b2, b3}. These incidents are not isolated: Indonesia's Ministry of Social Affairs likewise reported a breach of 102 million personal records \cite{b3}. In response, Indonesia enacted Law No.~27 of 2022 on Personal Data Protection, which explicitly designates health records, biometric data, genetic data, and children's data as categories of sensitive personal data requiring strong protection mechanisms \cite{b4}. The legal and practical imperative to secure visual data at the cryptographic level is therefore unambiguous.
+
+Image encryption is the primary technical countermeasure for protecting visual data in transit and at rest. Among the available paradigms, chaos-based image encryption has attracted sustained research interest because chaotic systems exhibit three cryptographically desirable properties: \textit{sensitivity to initial conditions} (a minuscule parameter change yields a completely different output), \textit{ergodicity} (the trajectory uniformly visits all regions of the state space), and \textit{pseudo-randomness} (the output is statistically indistinguishable from true randomness) \cite{b9, b10}. The \textit{confusion-diffusion} architecture \cite{b12} is the predominant structural framework: a confusion stage scrambles pixel positions to destroy spatial correlation, while a diffusion stage modifies pixel intensity values so that local changes propagate globally. An ideal cipher image exhibits a near-uniform intensity histogram, inter-pixel correlation approaching zero, and information entropy near the theoretical maximum of 8~bits/symbol \cite{b15}.
+
+Despite its appeal, single-map chaos encryption carries inherent limitations. One-dimensional maps such as the Logistic Map and Tent Map individually suffer from a narrow effective chaotic range and non-uniform output distributions. Specifically, the Logistic Map achieves full chaos only for $r \in (3.57, 4]$, and its output concentrates near the interval boundaries, producing a non-uniform keystream distribution \cite{b25}. Relying on a single map constrains the key space and may leave statistical artifacts in the cipher image. Lawnik formally demonstrated that combining the Logistic and Tent Maps produces a composite system with superior statistical properties compared to either map used in isolation \cite{b25}. To further enlarge the permutation space during confusion, three-dimensional systems such as the Lorenz Attractor provide richer trajectories than any one-dimensional map \cite{b28, b30}. Praveen et al. consolidated these insights into a dual confusion--dual diffusion architecture using the Lorenz System, Logistic Map, and Tent Map in sequence, achieving cipher images with statistically superior randomness compared to conventional single-map schemes \cite{b26, b29}. Qayyum et al. independently confirmed that two distinct chaotic maps in a confusion-diffusion framework consistently improve encryption quality \cite{b22}.
+
+A second, orthogonal vulnerability concerns the management of the initial parameters that seed the chaotic maps. He et al. established that the security of a chaos-based scheme depends not only on the quality of the chaotic dynamics but also critically on the mechanism by which seeding parameters are generated and managed \cite{b20}. When initial conditions are fixed, derived from a simple shared passphrase, or exchanged using classical protocols (Diffie-Hellman, RSA, ECC), they are susceptible to quantum attacks: Shor's algorithm can recover such secrets in polynomial time on a sufficiently large quantum computer \cite{b18}. NIST's explicit recommendation is to begin deploying post-quantum algorithms immediately for data requiring long-term confidentiality \cite{b5}.
+
+NIST finalized its post-quantum standards in August 2024, including ML-KEM (Module-Lattice Key Encapsulation Mechanism), standardized as FIPS~203 \cite{b6}. ML-KEM enables two parties to establish a 32-byte shared secret over a public channel, with security grounded in the hardness of the Module Learning With Errors (MLWE) problem, believed to resist both classical and quantum attacks. However, a single 32-byte shared secret is insufficient to independently seed four chaos components (two Lorenz trajectories, one Logistic Map, one Tent Map) without key reuse. NIST SP~800-56C Rev.~2 recommends the HMAC Key Derivation Function (HKDF) \cite{b7, b8} to stretch and diversify KEM-produced shared secrets into multiple independent, context-bound subkeys. Shakib et al. confirmed that ML-KEM-derived keys can be safely extended through HKDF in practice \cite{b23}; He et al. demonstrated that HKDF integration with a chaos-based scheme produces cryptographically independent subkeys that strengthen the overall security \cite{b20}.
+
+Despite these individual advances, no prior work integrates all three components---a NIST-standardized PQC KEM, HKDF-based parameter derivation, and a multi-map confusion-diffusion pipeline---into a single coherent hybrid scheme. Multiple-map chaos schemes \cite{b26, b29, b22} rely on classically exchanged or directly specified parameters; PQC-oriented works \cite{b23} address key encapsulation without image encryption; and HKDF-enhanced chaos work \cite{b20} couples HKDF with classical ECC rather than a PQC standard. This paper closes that gap.
+
+The main contributions of this work are as follows:
+\begin{enumerate}
+    \item A \textit{hybrid Chaos-PQC image encryption scheme} integrating ML-KEM-768 (FIPS~203, security category~3) for post-quantum key establishment with a four-stage multi-map chaos encryption pipeline---the first such combination to the best of the authors' knowledge.
+    \item A \textit{HKDF-SHA-256 parameter derivation layer} that maps the ML-KEM shared secret into four cryptographically independent, context-bound subkeys, ensuring session-unique, non-reusable seeds for each chaos component and eliminating cross-component key correlation.
+    \item A \textit{dual confusion--dual diffusion encryption architecture} combining the Lorenz Attractor (1st confusion), Logistic Map (1st diffusion), Lorenz Attractor with a distinct HKDF-derived trajectory (2nd confusion), and Tent Map (2nd diffusion), evaluated on nine grayscale images across three resolution classes ($512\times512$, $900\times900$, and $1080\times1080$ pixels).
+    \item \textit{Statistical evaluation} demonstrating that all cipher images achieve information entropy ${>}\,7.998$ bits/symbol, absolute inter-pixel correlation ${<}\,0.004$, and PSNR ${<}\,9$~dB---results consistent with or exceeding comparable multi-map chaos schemes in the literature.
+\end{enumerate}
+
+The remainder of this paper is organized as follows. Section~II reviews the theoretical background and surveys closely related prior work. Section~III details the proposed hybrid scheme. Section~IV presents experimental results. Section~V discusses findings and limitations, and Section~VI concludes the paper.
+
+% -------------------------------------------------------
+\section{Background and Related Work}
+% -------------------------------------------------------
+
+\subsection{Image Encryption and the Confusion-Diffusion Paradigm}
+
+A grayscale digital image is represented as an $H \times W$ pixel matrix, where each element stores an 8-bit intensity value in the range $[0, 255]$, with 0 representing black and 255 representing white \cite{b13}. Image encryption transforms this plain image $P$ into a visually unintelligible cipher image $E$ through a cryptographically keyed process, such that $E$ cannot be recovered without knowledge of the secret key \cite{b12}.
+
+The predominant structural framework for chaos-based image encryption is the \textit{confusion-diffusion} paradigm \cite{b12}. Confusion scrambles the spatial arrangement of pixels---breaking inter-pixel correlation without altering intensity values---while diffusion modifies pixel intensity values through a keystream XOR operation, ensuring that a one-bit change in the plaintext propagates to the entire cipher image. The quality of a cipher image is evaluated by three principal statistical metrics \cite{b15}:
+\begin{itemize}
+    \item \textit{Histogram uniformity}: an ideal cipher image exhibits a flat histogram across all 256 intensity levels, indicating no residual statistical structure from the plaintext;
+    \item \textit{Inter-pixel correlation}: the linear correlation coefficient between adjacent pixels should approach zero in both horizontal and vertical directions \cite{b14};
+    \item \textit{Information entropy}: defined as $H = -\sum_{v=0}^{255} p(v) \log_2 p(v)$, this should approach the theoretical maximum of 8~bits/symbol for a uniformly distributed 8-bit image \cite{b15}. Peak Signal-to-Noise Ratio (PSNR) between the plain image and cipher image is also measured; a low PSNR (typically below 10~dB) confirms high visual dissimilarity \cite{b12}.
+\end{itemize}
+
+\subsection{ML-KEM (FIPS 203)}
+
+Classical key exchange protocols such as RSA and Diffie-Hellman are founded on the computational hardness of integer factorization and the discrete logarithm problem, both of which can be solved in polynomial time by Shor's algorithm on a large-scale quantum computer \cite{b18}. In response, NIST launched a post-quantum cryptography (PQC) standardization project, culminating in the August 2024 publication of FIPS~203, which standardizes ML-KEM \cite{b6}.
+
+ML-KEM is a Key Encapsulation Mechanism (KEM) derived from the CRYSTALS-Kyber submission \cite{b6, b17}, whose security is grounded in the hardness of the Module Learning With Errors (MLWE) problem---a lattice problem for which no efficient classical or quantum algorithm is known. ML-KEM defines three parameter sets offering different security--bandwidth trade-offs (Table~\ref{tab:mlkem}):
+
+\begin{table}[htbp]
+\caption{ML-KEM Parameter Sets \cite{b5, b27}}
+\label{tab:mlkem}
+\begin{center}
+\begin{tabular}{|l|c|c|c|c|}
+\hline
+\textbf{Variant} & \textbf{NIST Cat.} & \textbf{ek (bytes)} & \textbf{dk (bytes)} & \textbf{ct (bytes)} \\
+\hline
+ML-KEM-512  & 1 (AES-128) & 800  & 1632 & 768  \\
+ML-KEM-768  & 3 (AES-192) & 1184 & 2400 & 1088 \\
+ML-KEM-1024 & 5 (AES-256) & 1568 & 3168 & 1568 \\
+\hline
+\end{tabular}
+\end{center}
+\end{table}
+
+This work employs ML-KEM-768 (NIST security category~3), which balances security and communication overhead. All three variants produce a 32-byte shared secret $K$. The protocol operates as follows \cite{b6}:
+\begin{enumerate}
+    \item \textit{Key Generation (\texttt{ML-KEM.KeyGen}):} generates an encapsulation key $\mathit{ek}$ (public) and a decapsulation key $\mathit{dk}$ (private) from internal randomness. If the random bit generator fails, the procedure returns an error indicator $\perp$.
+    \item \textit{Encapsulation (\texttt{ML-KEM.Encaps}):} takes $\mathit{ek}$ as input, draws 32 random bytes internally, and outputs a ciphertext $c$ and a 32-byte shared secret $K$.
+    \item \textit{Decapsulation (\texttt{ML-KEM.Decaps}):} takes $\mathit{dk}$ and $c$ as inputs (no additional randomness) and deterministically recovers $K$. Correctness guarantees $K_{\text{encaps}} = K_{\text{decaps}}$ with overwhelming probability.
+\end{enumerate}
+
+\subsection{HMAC Key Derivation Function (HKDF)}
+
+The 32-byte output of ML-KEM is a single shared secret; directly using it as a seed for multiple chaotic maps would constitute key reuse, reducing the effective security of each map to the same secret and creating key-correlation vulnerabilities \cite{b19}. HKDF \cite{b8}, specified in RFC~5869 and recommended by NIST SP~800-56C Rev.~2 \cite{b7} for use with KEM-derived secrets, resolves this by generating arbitrarily many cryptographically independent subkeys from a single input keying material (IKM).
+
+HKDF operates in two stages:
+\begin{enumerate}
+    \item \textit{Extract:} $\mathit{PRK} = \text{HMAC-Hash}(\mathit{salt},\, \mathit{IKM})$. The salt diversifies the extraction; if no salt is available, a zero-byte string of HashLen bytes is used. The output $\mathit{PRK}$ is a HashLen-byte pseudorandom key.
+    \item \textit{Expand:} The PRK is used as the HMAC key to generate a sequence of chained blocks $T(1), T(2), \ldots$, each computed as $T(i) = \text{HMAC-Hash}(\mathit{PRK},\, T(i{-}1) \,\|\, \mathit{info} \,\|\, i)$, where $\mathit{info}$ is an application-specific context string. The output keying material (OKM) is the concatenation of these blocks, truncated to the required length $L$.
+\end{enumerate}
+
+The security of HKDF rests solely on the pseudorandomness of the underlying hash function \cite{b8}; no structural assumption about the IKM source is required beyond its containing sufficient entropy. Formal analysis confirms that OKM blocks are computationally indistinguishable from uniformly random strings even when the IKM is only partially random \cite{b21}. Consequently, four distinct \texttt{info} labels (one per chaos component) produce four subkeys that are mutually independent and context-bound, preventing their cross-use across different encryption sessions \cite{b19}.
+
+\subsection{Chaotic Maps for Image Encryption}
+
+\subsubsection{Lorenz Attractor}
+
+The Lorenz system, introduced by Lorenz in 1963 \cite{b28}, is a three-dimensional, continuous-time nonlinear dynamical system governed by the ordinary differential equations:
+\begin{equation}
+\dot{x} = \sigma(y - x),\quad \dot{y} = x(\rho - z) - y,\quad \dot{z} = xy - \beta z,
+\label{eq:lorenz_bg}
+\end{equation}
+where $\sigma$, $\rho$, and $\beta$ are system parameters. At the classical values $\sigma = 10$, $\rho = 28$, and $\beta = 8/3$ \cite{b28, b30}, trajectories neither converge to a fixed point nor become periodic but instead trace an aperiodic orbit on the Lorenz Strange Attractor, a fractal structure with a butterfly-wing shape. This behavior---exhibiting sensitive dependence on initial conditions (the Butterfly Effect)---makes the Lorenz system well suited for pixel permutation in the confusion stage of image encryption \cite{b29}: numerically integrating the system from HKDF-derived initial conditions $(x_0, y_0, z_0)$ produces a long sequence that, when argsorted, yields a high-quality permutation index vector.
+
+\subsubsection{Logistic Map}
+
+The Logistic Map is a one-dimensional discrete-time chaotic map defined as \cite{b11}:
+\begin{equation}
+x_{n+1} = r \cdot x_n(1 - x_n), \quad x_0 \in (0,1),
+\label{eq:logistic_bg}
+\end{equation}
+where $r$ is the control parameter. The map exhibits full chaotic behavior for $r \in (3.57, 4]$; outside this range, periodic or convergent behavior dominates \cite{b25}. Its sensitivity to initial conditions makes it suitable for generating pixel permutation indices in the confusion stage. However, the Logistic Map's output distribution is non-uniform---values concentrate near the interval boundaries---which limits its direct use as a diffusion keystream and constrains its effective key space \cite{b25}. In this work, a linear normalization maps raw HKDF integer bytes to a valid chaotic range, and a transient of initial iterates is discarded before use to maximize randomness \cite{b11}.
+
+\subsubsection{Tent Map}
+
+The Tent Map is a one-dimensional piecewise-linear chaotic map defined as \cite{b9, b15}:
+\begin{equation}
+x_{n+1} = \begin{cases} x_n / \mu, & x_n < \mu \\ (1 - x_n)/(1 - \mu), & x_n \geq \mu \end{cases}
+\label{eq:tent_bg}
+\end{equation}
+with $\mu \in (0,1)$ and $x_0 \in [0,1)$. Unlike the Logistic Map, the Tent Map produces a nearly uniform output distribution over $[0,1)$ \cite{b25}, making it the preferred choice for the diffusion stage: when its output is scaled to $[0,255]$ and applied via bitwise XOR to pixel values, every intensity level has approximately equal probability of being selected, yielding a flat cipher-image histogram. Lawnik \cite{b25} formally demonstrated that the Tent Map complements the Logistic Map in a combined system, with the former providing the uniform diffusion distribution and the latter providing the permutation sensitivity.
+
+\subsection{Related Work and Research Gap}
+
+Research at the intersection of chaos, key derivation, and post-quantum cryptography has advanced along three largely independent lines. Table~\ref{tab:related} summarizes the works most directly relevant to this paper.
+
+\begin{table}[htbp]
+\caption{Summary of Related Work}
+\label{tab:related}
+\begin{center}
+\begin{tabular}{|p{1.4cm}|c|p{2.2cm}|p{2.2cm}|}
+\hline
+\textbf{Reference} & \textbf{Year} & \textbf{Key Mechanism} & \textbf{Gap / Limitation} \\
+\hline
+He et al. \cite{b20} & 2025 & ECC + HKDF + RN chaos & ECC is quantum-vulnerable \\
+\hline
+Shakib et al. \cite{b23} & 2025 & ML-KEM + HKDF & No image encryption \\
+\hline
+Praveen et al. \cite{b26,b29} & 2023 & Lorenz + Logistic + Tent, dual confusion-diffusion & Classically keyed; no PQC \\
+\hline
+Qayyum et al. \cite{b22} & 2020 & Two distinct chaotic maps & Classically keyed; single-stage diffusion \\
+\hline
+Lawnik \cite{b25} & 2018 & Combined Logistic + Tent map analysis & No encryption scheme; analytical only \\
+\hline
+\end{tabular}
+\end{center}
+\end{table}
+
+He et al. \cite{b20} demonstrated that HKDF can serve as a bridge between a key establishment mechanism and a chaos-based encryption pipeline, producing mutually independent subkeys from a single shared secret. However, their key establishment relies on ECC, which remains vulnerable to Shor's algorithm \cite{b18}. Shakib et al. \cite{b23} confirmed that ML-KEM keys can be safely extended via HKDF in a practical smart-grid authentication protocol, but their work does not address image encryption. Praveen et al. \cite{b26, b29} established the dual confusion--dual diffusion architecture combining the Lorenz System, Logistic Map, and Tent Map as an effective multi-map encryption pipeline for grayscale images, achieving superior statistical properties over single-map schemes; however, the initial chaos parameters are derived directly from user-provided values, leaving the key establishment outside a post-quantum security boundary. Qayyum et al. \cite{b22} and Lawnik \cite{b25} further confirmed the superiority of multi-map approaches but similarly do not address quantum-resistant key management.
+
+The collective gap is clear: no existing scheme combines (1) a NIST-standardized PQC KEM, (2) HKDF-based derivation of independent chaos parameters, and (3) a multi-map confusion-diffusion pipeline into a unified hybrid architecture. The present work addresses this gap.
+
+% -------------------------------------------------------
+\section{Proposed Hybrid Chaos-PQC Scheme}
+% -------------------------------------------------------
+
+\subsection{System Model and Design Rationale}
+
+The proposed scheme operates between two parties: a \textit{sender} (encryptor) and a \textit{receiver} (decryptor). Both parties are assumed to communicate over an untrusted public channel under a threat model that includes passive eavesdroppers equipped with a quantum computer. The security objective is to ensure that (1) the shared key material cannot be recovered from the public channel by either a classical or quantum adversary, and (2) the cipher image is computationally indistinguishable from a uniformly random noise image under the same threat model.
+
+The scheme is structured into three layers:
+\begin{enumerate}
+    \item \textit{Key Establishment Layer:} ML-KEM-768 enables both parties to agree on a session-unique 32-byte shared secret $K$ without transmitting it explicitly \cite{b6}.
+    \item \textit{Key Derivation Layer:} HKDF-SHA-256 \cite{b8} expands $K$ into 144 bytes of output keying material (OKM) that is partitioned into 18 independent, context-bound parameters for the four chaotic maps.
+    \item \textit{Encryption Layer:} A four-stage confusion-diffusion-confusion-diffusion pipeline using the Lorenz Attractor, Logistic Map, and Tent Map converts the plain image into a cipher image.
+\end{enumerate}
+
+The high-level data flow is:
+\[
+K \;\xrightarrow{\text{HKDF-SHA-256}}\; \mathrm{OKM}[0..143] \;\xrightarrow{\text{map}}\; \theta_{1..18} \;\xrightarrow{\text{chaos}}\; E
+\]
+
+\subsection{Key Establishment: ML-KEM-768}
+
+The sender executes \texttt{ML-KEM.KeyGen()} to produce an encapsulation key $\mathit{ek}$ (1,184 bytes) and a decapsulation key $\mathit{dk}$ (2,400 bytes) \cite{b5}. The encapsulation key $\mathit{ek}$ is published over the public channel. The receiver then runs \texttt{ML-KEM.Encaps($\mathit{ek}$)} to obtain a KEM ciphertext $c$ (1,088 bytes) and the shared secret $K$ (32 bytes). The sender recovers the identical $K$ by running \texttt{ML-KEM.Decaps($\mathit{dk}, c$)}. Correctness guarantees $K_\mathrm{enc} = K_\mathrm{dec}$ with overwhelming probability. Because the secret $K$ is never transmitted and its derivation is secured by the MLWE hardness assumption, neither party needs to communicate it over the channel, providing quantum-resistant key establishment \cite{b6}.
+
+\subsection{Key Derivation: HKDF-SHA-256}
+
+The shared secret $K$ (32 bytes) serves as the Input Keying Material (IKM) for HKDF-SHA-256. A random salt and a context label $\mathit{info}$ (e.g., \texttt{"chaos-pqc-params"}) are applied in the Extract stage to produce a 32-byte pseudorandom key (PRK). The Expand stage is applied five times (each iteration yielding 32 bytes) to produce 160 bytes; the first 144 bytes constitute the OKM and the remaining 16 bytes are discarded.
+
+The 144-byte OKM is segmented into 18 non-overlapping 8-byte blocks. Each block $\mathrm{OKM}[8i..8i{+}7]$ is converted to a 64-bit unsigned integer $w_i$ using big-endian byte order, then normalized to a unit interval value:
+\begin{equation}
+u_i = \frac{w_i}{2^{64} - 1}, \quad u_i \in [0,\,1).
+\label{eq:normalize}
+\end{equation}
+Finally, $u_i$ is linearly mapped to the valid chaotic parameter range $[\theta_\mathrm{min},\, \theta_\mathrm{max})$:
+\begin{equation}
+\theta_i = \theta_\mathrm{min} + u_i \cdot (\theta_\mathrm{max} - \theta_\mathrm{min}).
+\label{eq:parammap}
+\end{equation}
+Table~\ref{tab:hkdf_params} lists the OKM byte allocation and valid ranges for all 18 parameters. The ranges are chosen to ensure that all maps operate within their established chaotic regimes \cite{b25, b28}.
+
+\begin{table}[htbp]
+\caption{HKDF OKM Allocation and Chaotic Parameter Mapping}
+\label{tab:hkdf_params}
+\begin{center}
+\begin{tabular}{|c|l|l|l|}
+\hline
+\textbf{OKM Bytes} & \textbf{Parameter} & \textbf{Stage} & \textbf{Range} \\
+\hline
+0--7   & Lorenz $x_0$ & C1 & $[0.01,\,1.00)$ \\
+8--15  & Lorenz $y_0$ & C1 & $[0.01,\,1.00)$ \\
+16--23 & Lorenz $z_0$ & C1 & $[0.01,\,1.00)$ \\
+24--31 & Lorenz $\sigma$ & C1 & $[8.00,\,12.00)$ \\
+32--39 & Lorenz $\rho$   & C1 & $[24.00,\,35.00)$ \\
+40--47 & Lorenz $\beta$  & C1 & $[2.00,\,3.00)$ \\
+48--55 & Lorenz $dt$     & C1 & $[0.005,\,0.015)$ \\
+56--63 & Logistic $x_0$ & D1 & $[0.10,\,0.90)$ \\
+64--71 & Logistic $r$   & D1 & $[3.90,\,3.999)$ \\
+72--79 & Lorenz $x_0$   & C2 & $[0.01,\,1.00)$ \\
+80--87 & Lorenz $y_0$   & C2 & $[0.01,\,1.00)$ \\
+88--95 & Lorenz $z_0$   & C2 & $[0.01,\,1.00)$ \\
+96--103  & Lorenz $\sigma$ & C2 & $[8.00,\,12.00)$ \\
+104--111 & Lorenz $\rho$   & C2 & $[24.00,\,35.00)$ \\
+112--119 & Lorenz $\beta$  & C2 & $[2.00,\,3.00)$ \\
+120--127 & Lorenz $dt$     & C2 & $[0.005,\,0.015)$ \\
+128--135 & Tent $x_0$      & D2 & $[0.10,\,0.90)$ \\
+136--143 & Tent $\mu$      & D2 & $[1.90,\,1.999)$ \\
+\hline
+\end{tabular}
+\end{center}
+\end{table}
+
+\subsection{Encryption Pipeline}
+
+The grayscale plain image $P$ of size $H \times W$ is first flattened to a 1-D pixel array $\mathbf{P} = [p_0, p_1, \ldots, p_{N-1}]$ where $N = H \times W$ and each $p_i \in [0, 255]$. The four stages are then applied sequentially.
+
+\subsubsection{Stage 1 --- 1st Confusion (Lorenz Attractor)}
+
+The Lorenz system is integrated numerically using the Euler method from HKDF-derived initial conditions $(x_0, y_0, z_0)$ and parameters $(\sigma, \rho, \beta, dt)$ for $N$ steps:
+\begin{align}
+x_{n+1} &= x_n + \sigma(y_n - x_n)\,dt, \notag \\
+y_{n+1} &= y_n + [x_n(\rho - z_n) - y_n]\,dt, \label{eq:lorenz_euler} \\
+z_{n+1} &= z_n + (x_n y_n - \beta z_n)\,dt. \notag
+\end{align}
+The resulting sequences $\{x_n\}$ and $\{y_n\}$ are argsorted to produce row-permutation indices $\pi_x$ and column-permutation indices $\pi_y$ respectively. The pixel array is first permuted row-wise and then column-wise according to $(\pi_x, \pi_y)$ to yield the 1st-confused array $\mathbf{C}_1$. The sequence $\{z_n\}$ is not used directly as an index but participates in the dynamical coupling that governs $\{y_n\}$, thereby influencing the quality of the column permutation \cite{b29}.
+
+\subsubsection{Stage 2 --- 1st Diffusion (Logistic Map)}
+
+The Logistic Map is iterated $N$ times from HKDF-derived parameters $(x_0, r)$ where $r \in [3.90, 3.999)$:
+\begin{equation}
+x_{n+1} = r \cdot x_n (1 - x_n).
+\label{eq:logistic_enc}
+\end{equation}
+Each floating-point value $x_n$ is converted to an 8-bit keystream byte:
+\begin{equation}
+k_n = \lfloor \mathrm{frac}(|x_n|) \times 256 \rfloor \mod 256,
+\label{eq:logistic_byte}
+\end{equation}
+where $\mathrm{frac}(\cdot)$ extracts the fractional part. The keystream $\mathbf{k}_1 = [k_0, \ldots, k_{N-1}]$ is XOR-combined with $\mathbf{C}_1$ to produce the 1st-diffused array:
+\begin{equation}
+D_{1,i} = C_{1,i} \oplus k_{1,i}, \quad i = 0, \ldots, N-1.
+\label{eq:xor1}
+\end{equation}
+The XOR operation is reversible: $C_{1,i} = D_{1,i} \oplus k_{1,i}$, ensuring correct decryption.
+
+\subsubsection{Stage 3 --- 2nd Confusion (Lorenz Attractor)}
+
+A second Lorenz trajectory is integrated from a distinct set of HKDF-derived parameters $(x_0^{(2)}, y_0^{(2)}, z_0^{(2)}, \sigma^{(2)}, \rho^{(2)}, \beta^{(2)}, dt^{(2)})$ sourced from OKM bytes 72--127. Because these parameters originate from a non-overlapping OKM segment that is cryptographically independent of bytes 0--71, the resulting permutation $(\pi_x^{(2)}, \pi_y^{(2)})$ is different from $(\pi_x, \pi_y)$ with overwhelming probability \cite{b8, b19}. The 2nd confusion produces array $\mathbf{C}_2$ from $\mathbf{D}_1$, further scrambling pixel positions after diffusion.
+
+\subsubsection{Stage 4 --- 2nd Diffusion (Tent Map)}
+
+The Tent Map is iterated $N$ times from HKDF-derived parameters $(x_0, \mu)$ where $\mu \in [1.90, 1.999)$:
+\begin{equation}
+x_{n+1} = \begin{cases} x_n / \mu, & x_n < \mu/2 \\ (1 - x_n)/(1 - \mu/2), & x_n \geq \mu/2. \end{cases}
+\label{eq:tent_enc}
+\end{equation}
+Values are kept in $[0,1)$ by applying $x \leftarrow x - \lfloor x \rfloor$ at each step. The Tent keystream byte conversion follows the same formula as Eq.~\eqref{eq:logistic_byte}. The final cipher image array is:
+\begin{equation}
+E_i = C_{2,i} \oplus k_{2,i}, \quad i = 0, \ldots, N-1,
+\label{eq:xor2}
+\end{equation}
+after which $\mathbf{E}$ is reshaped to $H \times W$. Because the Tent Map output is nearly uniformly distributed over $[0,1)$ \cite{b25}, the resulting keystream $\mathbf{k}_2$ is close to ideal, producing a flat cipher-image histogram.
+
+\subsection{Decryption}
+
+Decryption is the exact inverse of encryption and requires the receiver to possess the same shared secret $K$ (obtained via ML-KEM decapsulation) and the same salt. The receiver runs HKDF with identical inputs to regenerate all 18 chaos parameters, then applies the following pipeline:
+\begin{enumerate}
+    \item \textit{Inverse 2nd Diffusion:} $C_{2,i} = E_i \oplus k_{2,i}$ (regenerated Tent keystream).
+    \item \textit{Inverse 2nd Confusion:} apply inverse column-then-row permutation $(\pi_x^{(2)})^{-1}$, $(\pi_y^{(2)})^{-1}$ to recover $\mathbf{D}_1$.
+    \item \textit{Inverse 1st Diffusion:} $C_{1,i} = D_{1,i} \oplus k_{1,i}$ (regenerated Logistic keystream).
+    \item \textit{Inverse 1st Confusion:} apply inverse permutation $(\pi_x)^{-1}$, $(\pi_y)^{-1}$ to recover $\mathbf{P}$.
+\end{enumerate}
+The XOR self-inverse property and the invertibility of index-sort permutations guarantee exact recovery of the plain image pixel array $\mathbf{P}$, which is then reshaped to $H \times W$. If any chaos parameter deviates by even one bit---as would occur with a different or corrupted shared secret---the recovered image is entirely uncorrelated with the original, providing sensitivity equivalent to that of the underlying chaotic maps \cite{b28, b30}.
+
+% -------------------------------------------------------
+\section{Experimental Results}
+% -------------------------------------------------------
+
+\subsection{Experimental Setup}
+
+Nine grayscale PNG images in three resolution classes were used: three images at $512 \times 512$ pixels (Babon, Camar, Kubah), three at $900 \times 900$ pixels (Gedung, Poster, Abstrak), and three at $1080 \times 1080$ pixels (Bunga, Daun, Matahari). The sample set was selected to cover images with varying intensity distributions (dark-dominant, bright-dominant, and balanced) and to test scheme consistency across different matrix dimensions. The scheme was implemented in Python using the \texttt{liboqs} Python bindings for ML-KEM-768 and \texttt{cryptography} library for HKDF-SHA-256.
+
+\subsection{Encryption and Decryption Correctness}
+
+All nine cipher images were successfully decrypted to the original plain images with bit-exact accuracy when the correct shared secret was used. To validate chaotic sensitivity, a controlled fault-injection experiment was performed: a single bit in the least-significant byte of the Logistic Map initial condition $x_0$ was flipped during decryption. The recovered image bore no visual or statistical resemblance to the original plain image, confirming that the scheme inherits the sensitive-dependence-on-initial-conditions property of the underlying chaotic maps \cite{b28, b30}. A one-bit parameter perturbation entirely alters the chaotic trajectory, producing a different keystream and thus a completely different output.
+
+\subsection{Histogram Analysis}
+
+Histogram uniformity of the cipher image is a standard first-order test of encryption quality \cite{b15}. The standard deviation $\sigma_H$ of per-intensity-level frequency over all 256 gray levels was computed for both plain and cipher images; lower $\sigma_H$ indicates greater uniformity.
+
+\begin{table}[htbp]
+\caption{Histogram Standard Deviation: Plain vs.\ Cipher Image}
+\label{tab:histogram}
+\begin{center}
+\begin{tabular}{|l|c|c|c|}
+\hline
+\textbf{Image} & \textbf{Size} & \textbf{Plain $\sigma_H$} & \textbf{Cipher $\sigma_H$} \\
+\hline
+Babon    & $512^2$   & 3506.90 & 43.51 \\
+Camar    & $512^2$   & 2491.33 & 36.23 \\
+Kubah    & $512^2$   & 3245.15 & 49.89 \\
+Gedung   & $900^2$   & 4088.65 & 56.65 \\
+Poster   & $900^2$   & 6783.65 & 57.08 \\
+Abstrak  & $900^2$   & 3322.11 & 54.79 \\
+Bunga    & $1080^2$  & 4781.00 & 71.59 \\
+Daun     & $1080^2$  & 3344.75 & 63.96 \\
+Matahari & $1080^2$  & 5711.30 & 67.64 \\
+\hline
+\end{tabular}
+\end{center}
+\end{table}
+
+Plain images exhibit highly non-uniform histograms ($\sigma_H = 2{,}491$--$6{,}784$), reflecting the spatial redundancy of natural images \cite{b15}. After encryption, all cipher images achieve dramatically reduced standard deviations ($\sigma_H = 36$--$72$), confirming near-uniform pixel intensity distribution. The residual variance scales with image size due to a larger absolute pixel count per intensity bin, but relative uniformity holds consistently across all three resolution classes. These results confirm that the dual confusion--dual diffusion pipeline eliminates exploitable intensity-level patterns from the plaintext.
+
+\subsection{Pixel Correlation, Entropy, and PSNR}
+
+Three additional metrics were computed. The horizontal adjacent-pixel correlation coefficient is:
+\begin{equation}
+r = \frac{\sum_i (p_i - \bar{p})(p_{i+1} - \bar{p})}
+         {\sqrt{\sum_i (p_i - \bar{p})^2 \cdot \sum_i (p_{i+1} - \bar{p})^2}},
+\label{eq:corr}
+\end{equation}
+where $|r| \approx 0$ indicates negligible linear dependence between adjacent pixels \cite{b14}. Information entropy is:
+\begin{equation}
+H = -\sum_{v=0}^{255} p(v)\log_2 p(v),
+\label{eq:entropy}
+\end{equation}
+with theoretical maximum $H_\mathrm{max} = 8$ bits for a uniformly distributed 8-bit image. PSNR between plain image and cipher image is:
+\begin{equation}
+\mathrm{PSNR} = 10\log_{10}\!\left(\frac{255^2}{\mathrm{MSE}}\right) \,[\mathrm{dB}],
+\label{eq:psnr}
+\end{equation}
+where $\mathrm{MSE} = \frac{1}{N}\sum_{i}(p_i - E_i)^2$. Low PSNR indicates high visual dissimilarity, which is desirable for a cipher image \cite{b12}.
+
+\begin{table}[htbp]
+\caption{Statistical Metrics of Cipher Images}
+\label{tab:metrics}
+\begin{center}
+\begin{tabular}{|l|c|c|c|}
+\hline
+\textbf{Image} & \textbf{Correlation} & \textbf{Entropy (bits)} & \textbf{PSNR (dB)} \\
+\hline
+Babon    & $-0.003527$ & 7.9987 & 8.9972 \\
+Camar    & $-0.001506$ & 7.9991 & 7.9632 \\
+Kubah    &  $0.000583$ & 7.9983 & 8.7849 \\
+Gedung   & $-0.000630$ & 7.9998 & 7.1152 \\
+Poster   &  $0.000438$ & 7.9998 & 6.0932 \\
+Abstrak  & $-0.000475$ & 7.9998 & 7.8507 \\
+Bunga    & $-0.001749$ & 7.9998 & 7.1025 \\
+Daun     &  $0.000061$ & 7.9999 & 7.8575 \\
+Matahari & $-0.000033$ & 7.9998 & 8.3739 \\
+\hline
+\textbf{Mean} & $\mathbf{-0.000715}$ & \textbf{7.9994} & \textbf{7.79} \\
+\hline
+\end{tabular}
+\end{center}
+\end{table}
+
+\textit{Correlation.} All cipher images achieve $|r| < 3.6 \times 10^{-3}$, with a mean absolute value of $\approx 7 \times 10^{-4}$. Both positive and negative values near zero confirm that the two-stage Lorenz confusion has randomized pixel ordering in both row and column directions \cite{b29}. These values are consistent with results reported for multi-map confusion schemes in the literature \cite{b22, b26}.
+
+\textit{Entropy.} All nine cipher images achieve $H > 7.998$ bits, with a mean of 7.9994 and a peak of 7.9999 (Daun). The mean deviates from the theoretical maximum by only 0.0006 bits, confirming that the two-stage diffusion (Logistic Map then Tent Map) distributes pixel intensities uniformly across all 256 levels. The Tent Map's near-uniform output distribution \cite{b25} prevents residual concentration at specific intensity values that would otherwise arise from the Logistic Map's non-uniform marginal.
+
+\textit{PSNR.} Cipher image PSNR values range from 6.09~dB (Poster) to 8.99~dB (Babon), well below the 30~dB threshold for visual similarity \cite{b12}. Variation across images reflects differences in plain-image pixel variance, which affects the MSE, not any structural weakness of the scheme.
+
+% -------------------------------------------------------
+\section{Discussion}
+% -------------------------------------------------------
+
+The experimental results demonstrate three properties of the proposed scheme:
+
+\textbf{Post-quantum security of key establishment.} By employing ML-KEM-768 (NIST Category 3), the shared secret used to seed all chaos parameters is protected against both classical and quantum adversaries, a property absent in all closely related prior works.
+
+\textbf{Secure and independent parameter derivation.} The use of HKDF with distinct \texttt{info} labels for each chaos component ensures that the four sets of chaos parameters are cryptographically independent. This prevents cross-correlation between confusion and diffusion keys and eliminates key reuse across sessions.
+
+\textbf{High-quality cipher images.} The dual confusion--dual diffusion architecture produces cipher images whose statistical properties approach those of an ideal random image: near-zero pixel correlation, near-maximum entropy, and low PSNR. The Tent Map's more uniform output distribution \cite{b25} compared to the Logistic Map makes it the appropriate choice for the final diffusion stage, while the Lorenz Attractor's three-dimensional structure provides a richer permutation space than 1-D maps.
+
+The current implementation is limited to grayscale images. Extension to RGB color images and the addition of an authentication layer (e.g., a MAC over the cipher image) are identified as immediate future directions.
+
+% -------------------------------------------------------
+\section{Conclusion}
+% -------------------------------------------------------
+
+This paper proposed and evaluated a hybrid Chaos-PQC image encryption scheme that integrates ML-KEM-768 for quantum-resistant key establishment, HKDF-SHA-256 for cryptographically secure parameter derivation, and a four-stage confusion-diffusion-confusion-diffusion pipeline using the Lorenz Attractor, Logistic Map, and Tent Map. Experiments on nine grayscale images demonstrate that all cipher images achieve entropy $> 7.998$ bits, pixel correlation $< |0.004|$, and PSNR $< 9$ dB, confirming strong encryption quality and resistance to statistical analysis. The post-quantum security layer provided by ML-KEM-768 distinguishes this scheme from existing chaos-based approaches and makes it suitable for deployment in environments where long-term quantum-resistant security is required.
+
+% -------------------------------------------------------
+\section*{Acknowledgment}
+% -------------------------------------------------------
+
+The authors thank Yeni Farida, S.Stat., M.Si., for her guidance throughout the research, and acknowledge Politeknik Siber dan Sandi Negara (Poltek SSN) for the institutional support.
+
+% -------------------------------------------------------
+\begin{thebibliography}{00}
+
+\bibitem{b1}
+Z. Whittaker, ``A billion medical images are exposed online, as doctors ignore warnings,'' \textit{TechCrunch}, Jan. 2020.
+
+\bibitem{b2}
+R. K. Nistanto, ``Ini Hasil Pertemuan Kominfo dengan BPJS Kesehatan Terkait Kebocoran Data,'' \textit{KOMPAS.com}, May 2021.
+
+\bibitem{b3}
+R. Ramadhan, ``102 Juta Data Penduduk Indonesia di Kemensos Bocor, Dijual di Forum Hacker,'' \textit{Kumparan}, Sep. 2022.
+
+\bibitem{b4}
+Republik Indonesia, \textit{Undang-Undang Nomor 27 Tahun 2022 tentang Pelindungan Data Pribadi}, 2022.
+
+\bibitem{b5}
+C. Boutin, ``NIST releases first 3 finalized post-quantum encryption standards,'' NIST, Aug. 2024.
+
+\bibitem{b6}
+G. M. Raimondo et al., \textit{FIPS 203: Module-Lattice-Based Key-Encapsulation Mechanism Standard}, NIST, 2024.
+
+\bibitem{b7}
+E. Barker et al., \textit{NIST SP 800-56C Rev.~2: Recommendation for Key-Derivation Methods in Key-Establishment Schemes}, NIST, 2020.
+
+\bibitem{b8}
+H. Krawczyk and P. Eronen, ``HMAC-based Extract-and-Expand Key Derivation Function (HKDF),'' RFC~5869, IETF, 2010.
+
+\bibitem{b9}
+M. Kalra, S. Katyal, and R. Singh, ``A Tent map and Logistic map based approach for chaos-based image encryption,'' \textit{Lect. Notes Netw. Syst.}, 2019.
+
+\bibitem{b10}
+J. Giesl et al., ``Chaos-Based Bit Planes Image Encryption,'' Tomas Bata University.
+
+\bibitem{b11}
+S. Chen et al., ``Logistic map: Stability and entrance to chaos,'' \textit{J. Phys.: Conf. Ser.}, 2021.
+
+\bibitem{b12}
+S. T. Kamal et al., ``A new image encryption algorithm for grey and color medical images,'' \textit{IEEE Access}, 2021.
+
+\bibitem{b13}
+V. Vu\v{c}kovi\'{c}, ``Image and its matrix, matrix and its image,'' \textit{Review of the National Center for Digitization}, vol.~12, pp.~17--31, 2008.
+
+\bibitem{b14}
+S. Khaitan, S. Sagar, and R. Agarwal, ``Chaos cryptosystem with optimal key selection for image encryption,'' \textit{Multimedia Tools Appl.}, 2022.
+
+\bibitem{b15}
+P. Sarosh, S. A. Parah, and G. M. Bhat, ``An efficient image encryption scheme for healthcare applications,'' \textit{Multimedia Tools and Applications}, vol.~81, pp.~7253--7270, 2022, doi:~10.1007/s11042-021-11812-0.
+
+\bibitem{b17}
+M. Kaur and V. Kumar, ``A comprehensive review on image encryption techniques,'' \textit{Archives of Computational Methods in Engineering}, vol.~27, pp.~15--43, 2020, doi:~10.1007/s11831-018-9298-8.
+
+\bibitem{b18}
+J.-P. Aumasson, ``The impact of quantum computing on cryptography,'' \textit{Computer Fraud \& Security}, vol.~2017, no.~6, pp.~8--11, 2017.
+
+\bibitem{b19}
+H. Krawczyk, ``Cryptographic extraction and key derivation: The HKDF scheme,'' in \textit{Proc. 30th Annu. Cryptology Conf. (CRYPTO 2010)}, Lecture Notes in Computer Science, vol.~6223, Springer, 2010, pp.~631--648, doi:~10.1007/978-3-642-14623-7\_34.
+
+\bibitem{b20}
+Z. He, A. Rauf, A. Nazir, F. Tchier, A. Aslam, and K. A. Tola, ``Design and analysis of a secure image encryption algorithm using proposed non-linear RN chaotic system and ECC/HKDF key derivation with authentication support,'' \textit{Scientific Reports}, vol.~15, art.~no.~39951, 2025, doi:~10.1038/s41598-025-23592-w.
+
+\bibitem{b21}
+J. M. McGinthy and A. J. Michaels, ``Further analysis of PRNG-based key derivation functions,'' \textit{IEEE Access}, vol.~7, pp.~95978--95986, 2019, doi:~10.1109/ACCESS.2019.2928768.
+
+\bibitem{b22}
+A. Qayyum, J. Ahmad, W. Boulila, S. Rubaiee, Arshad, F. Masood, F. Khan, and W. J. Buchanan, ``Chaos-based confusion and diffusion of image pixels using dynamic substitution,'' \textit{IEEE Access}, vol.~8, pp.~140876--140893, 2020, doi:~10.1109/ACCESS.2020.3012912.
+
+\bibitem{b23}
+K. H. Shakib, M. A. Hafeez, and A. Munir, ``AmphiKey: A dual-mode secure authenticated key encapsulation protocol for smart grid,'' arXiv preprint, arXiv:2509.01701, Sep. 2025.
+
+\bibitem{b24}
+Z. Hua and Y. Zhou, ``Dynamic parameter-control chaotic system,'' \textit{IEEE Trans. Cybern.}, vol.~46, no.~12, pp.~3330--3341, Dec. 2016, doi:~10.1109/TCYB.2015.2504180.
+
+\bibitem{b25}
+M. Lawnik, ``Combined logistic and tent map,'' \textit{J. Phys.: Conf. Ser.}, vol.~1141, art.~no.~012132, 2018, doi:~10.1088/1742-6596/1141/1/012132.
+
+\bibitem{b26}
+S. P. Praveen, V. S. Suntharam, S. Ravi, U. Harita, V. N. Thatha, and D. Swapna, ``A novel dual confusion and diffusion approach for grey image encryption using multiple chaotic maps,'' \textit{International Journal of Advanced Computer Science and Applications}, vol.~14, no.~8, 2023.
+
+\bibitem{b27}
+NIST, ``Security (evaluation criteria),'' Post-Quantum Cryptography Standardization, Computer Security Resource Center. [Online]. Available: \texttt{csrc.nist.gov/Projects/Post-Quantum-Cryptography}.
+
+\bibitem{b28}
+E. N. Lorenz, ``Deterministic nonperiodic flow,'' \textit{Journal of the Atmospheric Sciences}, vol.~20, no.~3, pp.~130--141, 1963, doi:~10.1175/1520-0469(1963)020<0130:DNF>2.0.CO;2.
+
+\bibitem{b29}
+S. P. Praveen et al., ``A novel dual confusion and diffusion approach for grey image encryption using multiple chaotic maps,'' \textit{Int. J. Advanced Computer Science and Applications}, vol.~14, no.~8, pp.~836--843, 2023, doi:~10.14569/IJACSA.2023.01408106.
+
+\bibitem{b30}
+S. H. Strogatz, \textit{Nonlinear Dynamics and Chaos: With Applications to Physics, Biology, Chemistry, and Engineering}, 2nd ed. Boulder, CO: Westview Press, 2015.
+
+\end{thebibliography}
+
+\end{document}

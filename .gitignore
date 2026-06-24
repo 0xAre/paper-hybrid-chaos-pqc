@@ -1,0 +1,35 @@
+# LaTeX build artifacts
+*.aux
+*.log
+*.synctex.gz
+*.fls
+*.fdb_latexmk
+*.out
+*.toc
+*.bbl
+*.blg
+*.dvi
+*.ps
+*.lof
+*.lot
+*.idx
+*.ind
+*.ilg
+*.glo
+*.gls
+*.glg
+*.acn
+*.acr
+*.alg
+*.xdy
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+*.swp
+*~
+
+# Overleaf / TeXstudio project files
+*.backup
