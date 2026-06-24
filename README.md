@@ -9,6 +9,7 @@
 | Hafas Furqan | Cryptographic Engineering, Politeknik Siber dan Sandi Negara | hafas.furqan@student.poltekssn.ac.id |
 | Yeni Farida | Cryptographic Engineering, Politeknik Siber dan Sandi Negara | yeni.farida@poltekssn.ac.id |
 | Andika Aryansyach Fauzan | Cryptographic Engineering, Politeknik Siber dan Sandi Negara | andika.aryansyach@student.poltekssn.ac.id |
+| Aga Ucu Fradana | Cryptographic Engineering, Politeknik Siber dan Sandi Negara | aga.ucu@student.poltekssn.ac.id |
 
 ## Paper Overview
 
